@@ -1,55 +1,96 @@
 import random
+from copy import deepcopy
 
-def inicializar_solucion(num_vehiculos, num_clientes):
-    """ Crea una solución inicial de manera aleatoria. """
-    solucion = list(range(num_clientes))
-    random.shuffle(solucion)
-    return [solucion[i::num_vehiculos] for i in range(num_vehiculos)]
+class Pedido:
+    def __init__(self, id, tiempo_procesamiento):
+        self.id = id
+        self.tiempo_procesamiento = tiempo_procesamiento
+        self.confirmado = False
 
-def calcular_costo(solucion):
-    """ Calcula el costo ficticio de una solución. """
-    return sum(random.randint(1, 10) * len(ruta) for ruta in solucion)
+    def __repr__(self):
+        return f"\nPedido(id={self.id}, tiempo={self.tiempo_procesamiento}, confirmado={self.confirmado})"
 
-def buscar_local(solucion):
-    """ Aplica una heurística de búsqueda local simple a la solución. """
-    for ruta in solucion:
-        if len(ruta) > 2:
-            i, j = sorted(random.sample(range(len(ruta)), 2))
-            ruta[i:j] = reversed(ruta[i:j])
-    return solucion
+class Vehiculo:
+    def __init__(self, id):
+        self.id = id
+        self.posicion = 0
+        self.capacidad = 100  # Capacidad hipotética
+        self.tiempo_viaje = 0
 
-def cambiar_vecindario(solucion, k):
-    """ Realiza un cambio en el vecindario basado en k. """
-    for _ in range(k):
-        ruta1, ruta2 = random.sample(solucion, 2)
-        if ruta1 and ruta2:
-            ruta1[-1], ruta2[0] = ruta2[0], ruta1[-1]
-    return solucion
+    def __repr__(self):
+        return f"\nVehiculo(id={self.id}, posicion={self.posicion}, capacidad={self.capacidad}, tiempo_viaje={self.tiempo_viaje})"
 
-def vns(num_vehiculos, num_clientes, k_max=5, max_iter=50):
-    """ Algoritmo VNS para el problema de VRP dinámico. """
-    solucion = inicializar_solucion(num_vehiculos, num_clientes)
-    costo = calcular_costo(solucion)
-    
-    for _ in range(max_iter):
-        k = 1
-        while k <= k_max:
-            nueva_solucion = cambiar_vecindario(solucion, k)
-            nueva_solucion = buscar_local(nueva_solucion)
-            nuevo_costo = calcular_costo(nueva_solucion)
-            
-            if nuevo_costo < costo:
-                solucion, costo = nueva_solucion, nuevo_costo
-                k = 1  # Reinicia la búsqueda en el primer vecindario
+class VRP:
+    def __init__(self, pedidos, vehiculos):
+        self.pedidos = {p.id: p for p in pedidos}
+        self.vehiculos = {v.id: v for v in vehiculos}
+        self.T = 480  # Ejemplo: 8 horas de trabajo en minutos
+        self.nst = 8  # 8 secciones temporales
+        self.Tst = self.T / self.nst
+        self.no_servidos = list(pedidos)
+
+    def solucion_inicial(self):
+        solucion = list(self.pedidos.values())
+        random.shuffle(solucion)
+        return solucion
+
+    def vns(self, solucion_actual):
+        mejor_solucion = deepcopy(solucion_actual)
+        mejor_costo = self.evaluar_solucion(mejor_solucion)
+        k = 0
+        max_k = 10
+        iter_sin_mejora = 0
+        max_iter_sin_mejora = 50
+
+        while k < max_k and iter_sin_mejora < max_iter_sin_mejora:
+            nueva_solucion = self.perturbar_solucion(deepcopy(mejor_solucion), k)
+            nueva_costo = self.evaluar_solucion(nueva_solucion)
+            if nueva_costo < mejor_costo:
+                mejor_solucion = nueva_solucion
+                mejor_costo = nueva_costo
+                k = 0
+                iter_sin_mejora = 0
             else:
                 k += 1
-    
-    return solucion, costo
+                iter_sin_mejora += 1
 
-# Parámetros de simulación
-num_vehiculos = 5
-num_clientes = 30
+        return mejor_solucion
 
-solucion_final, costo_final = vns(num_vehiculos, num_clientes)
-print("Solución final:", solucion_final)
-print("Costo final:", costo_final)
+    def perturbar_solucion(self, solucion, nivel_de_perturbacion):
+        for _ in range(nivel_de_perturbacion + 1):
+            i, j = random.sample(range(len(solucion)), 2)
+            solucion[i], solucion[j] = solucion[j], solucion[i]
+        return solucion
+
+    def evaluar_solucion(self, solucion):
+        return sum(not p.confirmado for p in solucion)
+
+def controlador_de_eventos(vrp):
+    Tstep = 0
+    while any(not p.confirmado for p in vrp.no_servidos):
+        print(f"---- Tstep: {Tstep} ----")
+        problemas_parciales = [p for p in vrp.no_servidos if p.tiempo_procesamiento <= Tstep + vrp.Tst]
+        solucion = vrp.solucion_inicial()
+        solucion = vrp.vns(solucion)
+
+        print("Solución propuesta:", solucion, "\n")
+        
+        confirmados = [p for p in problemas_parciales if Tstep <= p.tiempo_procesamiento < Tstep + vrp.Tst]
+        for p in confirmados:
+            p.confirmado = True
+            vrp.no_servidos.remove(p)
+
+        print("Pedidos confirmados:", confirmados, "\n")
+        print("Vehículos:", list(vrp.vehiculos.values()), "\n")
+
+        Tstep += vrp.Tst
+
+        for v in vrp.vehiculos.values():
+            v.tiempo_viaje += 10  # Simulación del incremento de tiempo de viaje
+
+# Simulación inicial
+pedidos = [Pedido(i, random.randint(0, 480)) for i in range(10)]
+vehiculos = [Vehiculo(i) for i in range(3)]
+vrp = VRP(pedidos, vehiculos)
+
+controlador_de_eventos(vrp)
